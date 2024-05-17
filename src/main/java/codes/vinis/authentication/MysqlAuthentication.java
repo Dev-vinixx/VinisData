@@ -1,4 +1,4 @@
-package authentication;
+package codes.vinis.authentication;
 
 import org.jetbrains.annotations.*;
 
