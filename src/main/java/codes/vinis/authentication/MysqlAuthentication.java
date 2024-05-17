@@ -59,7 +59,13 @@ public class MysqlAuthentication {
         return port;
     }
 
-    public final @NotNull Class<Driver> getDriver() {
+    /**
+     * Attempts to load the JDBC driver for MySQL.
+     *
+     * @return The class of the JDBC driver for MySQL.
+     * @throws RuntimeException If the JDBC driver cannot be loaded.
+     */
+    public @NotNull Class<Driver> getDriver() {
 
         try {
             try {
@@ -72,7 +78,12 @@ public class MysqlAuthentication {
         }
     }
 
-
+    /**
+     * Establishes a connection to the database asynchronously.
+     *
+     * @return A CompletableFuture that, when completed, will provide the established connection.
+     * @throws IllegalStateException If a connection is already established.
+     */
     public final @NotNull CompletableFuture<Connection> connect() {
 
         if (isConnected()) {
@@ -93,6 +104,12 @@ public class MysqlAuthentication {
         });
     }
 
+    /**
+     * Sets up and establishes a connection to the database asynchronously.
+     *
+     * @return A CompletableFuture that, when completed, will provide the established connection.
+     * @throws SQLException If an error occurs while establishing the connection.
+     */
     @ApiStatus.OverrideOnly
     public @NotNull CompletableFuture<Connection> load() throws SQLException{
         return CompletableFuture.supplyAsync(() -> {
@@ -103,6 +120,31 @@ public class MysqlAuthentication {
                return connection;
            } catch (SQLException e) {
                throw new RuntimeException("Error loading the database connection", e);
+           }
+        });
+    }
+
+    /**
+     * Disconnects from the database asynchronously.
+     *
+     * @return A CompletableFuture that represents the asynchronous disconnect operation.
+     * @throws IllegalStateException If the database is not currently connected.
+     */
+    public final @NotNull CompletableFuture<Void> disconnect() {
+        if (!isConnected()) {
+            throw new IllegalStateException("This authentication isn't connected");
+        }
+
+        return CompletableFuture.runAsync(() -> {
+           try {
+
+               if (connection != null) {
+                   connection.close();
+                   connection = null;
+               }
+
+           } catch(SQLException e) {
+               System.err.println("Error closing the connection: " + e.getMessage());
            }
         });
     }
