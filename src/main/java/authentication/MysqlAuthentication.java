@@ -3,9 +3,11 @@ package authentication;
 import org.jetbrains.annotations.*;
 
 import java.net.InetAddress;
-import java.sql.Connection;
-import java.sql.Driver;
+import java.sql.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 public class MysqlAuthentication {
 
@@ -72,17 +74,36 @@ public class MysqlAuthentication {
 
 
     public final @NotNull CompletableFuture<Connection> connect() {
+
         if (isConnected()) {
             throw new IllegalStateException("This authentication already are connected!");
         }
 
-        @NotNull CompletableFuture<Connection> future = new CompletableFuture<>();
+        return CompletableFuture.supplyAsync(() -> {
 
-        CompletableFuture.runAsync(() -> {
             try {
-                Class<Driver> driver = getDriver();
 
+                Class<Driver> driver = getDriver();
+                this.connection = load().get();
+
+                return this.connection;
+            } catch (Throwable throwable) {
+                throw new RuntimeException(throwable);
             }
+        });
+    }
+
+    @ApiStatus.OverrideOnly
+    public @NotNull CompletableFuture<Connection> load() throws SQLException{
+        return CompletableFuture.supplyAsync(() -> {
+           try {
+               @NotNull Connection connection = DriverManager.getConnection("bc:mysql://" + getHostname().getHostAddress() + ":" + getPort() + "/?autoReconnect=true&failOverReadOnly=false&verifyServerCertificate=false", getUsername(), getPassword());
+               connection.setNetworkTimeout(Executors.newFixedThreadPool(1), (int) TimeUnit.MINUTES.toMillis(30));
+
+               return connection;
+           } catch (SQLException e) {
+               throw new RuntimeException("Error loading the database connection", e);
+           }
         });
     }
 }
