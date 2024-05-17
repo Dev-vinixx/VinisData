@@ -108,10 +108,10 @@ public class MysqlAuthentication {
      * Sets up and establishes a connection to the database asynchronously.
      *
      * @return A CompletableFuture that, when completed, will provide the established connection.
-     * @throws SQLException If an error occurs while establishing the connection.
+     * @throws IllegalStateException If an error occurs while establishing the connection.
      */
     @ApiStatus.OverrideOnly
-    public @NotNull CompletableFuture<Connection> load() throws SQLException{
+    public @NotNull CompletableFuture<Connection> load(){
         return CompletableFuture.supplyAsync(() -> {
            try {
                @NotNull Connection connection = DriverManager.getConnection("bc:mysql://" + getHostname().getHostAddress() + ":" + getPort() + "/?autoReconnect=true&failOverReadOnly=false&verifyServerCertificate=false", getUsername(), getPassword());
@@ -146,6 +146,29 @@ public class MysqlAuthentication {
            } catch(SQLException e) {
                System.err.println("Error closing the connection: " + e.getMessage());
            }
+        });
+    }
+
+    /**
+     * Reconnects to the database asynchronously. If a connection is already established, it disconnects first.
+     * Both the disconnect and connect operations are subject to a timeout of 5 seconds.
+     *
+     * @return A CompletableFuture that represents the asynchronous reconnect operation.
+     * @throws RuntimeException If an error occurs during reconnection.
+     */
+    @Blocking
+    public final @NotNull CompletableFuture<Void> reconnect() {
+
+        return CompletableFuture.runAsync(() -> {
+
+            try {
+                if (isConnected()) {
+                    disconnect().get(5, TimeUnit.SECONDS);
+                }
+                connect().get(5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                throw new RuntimeException("Error during reconnection", e);
+            }
         });
     }
 }
