@@ -4,17 +4,12 @@ import org.jetbrains.annotations.*;
 
 import java.net.InetAddress;
 import java.sql.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 public class MysqlAuthentication {
 
     private final @Nullable String username;
     private final @Nullable String password;
-
-
     private final @NotNull InetAddress hostname;
 
     @Range(from = 0, to = 65535)
@@ -22,6 +17,8 @@ public class MysqlAuthentication {
 
     @ApiStatus.Internal
     private @Nullable Connection connection;
+
+    private final @NotNull ExecutorService executorService = Executors.newCachedThreadPool();
 
     public MysqlAuthentication(@Nullable String username, @Nullable String password, @NotNull InetAddress hostname, @Range(from = 0, to = 65535) int port) {
         this.username = username;
@@ -40,7 +37,7 @@ public class MysqlAuthentication {
 
     @Contract(pure = true)
     public final @Nullable String getUsername() {
-     return username;
+        return username;
     }
 
     @Contract(pure = true)
@@ -66,7 +63,6 @@ public class MysqlAuthentication {
      * @throws RuntimeException If the JDBC driver cannot be loaded.
      */
     public @NotNull Class<Driver> getDriver() {
-
         try {
             try {
                 return (Class<Driver>) Class.forName("com.mysql.cj.jdbc.Driver");
@@ -85,43 +81,47 @@ public class MysqlAuthentication {
      * @throws IllegalStateException If a connection is already established.
      */
     public final @NotNull CompletableFuture<Connection> connect() {
-
         if (isConnected()) {
-            throw new IllegalStateException("This authentication already are connected!");
+            throw new IllegalStateException("This authentication is already connected!");
         }
 
         return CompletableFuture.supplyAsync(() -> {
-
             try {
-
-                Class<Driver> driver = getDriver();
-                this.connection = load().get();
-
-                return this.connection;
+                Class<Driver> ignore = getDriver();
+                this.connection = load().get(10, TimeUnit.SECONDS);
+                return connection;
             } catch (Throwable throwable) {
-                throw new RuntimeException(throwable);
+                try {
+                    if (isConnected()) {
+                        disconnect().get(3, TimeUnit.SECONDS);
+                    }
+                } catch (Throwable ignore) {}
+                throw new CompletionException(throwable);
             }
-        });
+        }, executorService);
     }
 
     /**
      * Sets up and establishes a connection to the database asynchronously.
      *
      * @return A CompletableFuture that, when completed, will provide the established connection.
-     * @throws IllegalStateException If an error occurs while establishing the connection.
+     * @throws CompletionException If an error occurs while establishing the connection.
      */
     @ApiStatus.OverrideOnly
-    public @NotNull CompletableFuture<Connection> load(){
+    public @NotNull CompletableFuture<Connection> load() {
         return CompletableFuture.supplyAsync(() -> {
-           try {
-               @NotNull Connection connection = DriverManager.getConnection("bc:mysql://" + getHostname().getHostAddress() + ":" + getPort() + "/?autoReconnect=true&failOverReadOnly=false&verifyServerCertificate=false", getUsername(), getPassword());
-               connection.setNetworkTimeout(Executors.newFixedThreadPool(1), (int) TimeUnit.MINUTES.toMillis(30));
-
-               return connection;
-           } catch (SQLException e) {
-               throw new RuntimeException("Error loading the database connection", e);
-           }
-        });
+            try {
+                @NotNull Connection connection = DriverManager.getConnection(
+                        "jdbc:mysql://" + getHostname().getHostAddress() + ":" + getPort() +
+                                "/?autoReconnect=true&failOverReadOnly=false&verifyServerCertificate=false",
+                        getUsername(), getPassword()
+                );
+                connection.setNetworkTimeout(executorService, (int) TimeUnit.MINUTES.toMillis(30));
+                return connection;
+            } catch (SQLException e) {
+                throw new CompletionException("Error loading the database connection", e);
+            }
+        }, executorService);
     }
 
     /**
@@ -136,17 +136,15 @@ public class MysqlAuthentication {
         }
 
         return CompletableFuture.runAsync(() -> {
-           try {
-
-               if (connection != null) {
-                   connection.close();
-                   connection = null;
-               }
-
-           } catch(SQLException e) {
-               System.err.println("Error closing the connection: " + e.getMessage());
-           }
-        });
+            try {
+                if (connection != null) {
+                    connection.close();
+                    connection = null;
+                }
+            } catch (SQLException e) {
+                throw new CompletionException("Error closing the connection", e);
+            }
+        }, executorService);
     }
 
     /**
@@ -154,21 +152,40 @@ public class MysqlAuthentication {
      * Both the disconnect and connect operations are subject to a timeout of 5 seconds.
      *
      * @return A CompletableFuture that represents the asynchronous reconnect operation.
-     * @throws RuntimeException If an error occurs during reconnection.
+     * @throws CompletionException If an error occurs during reconnection.
      */
     @Blocking
     public final @NotNull CompletableFuture<Void> reconnect() {
-
         return CompletableFuture.runAsync(() -> {
-
             try {
                 if (isConnected()) {
                     disconnect().get(5, TimeUnit.SECONDS);
                 }
                 connect().get(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                throw new RuntimeException("Error during reconnection", e);
+            } catch (Throwable throwable) {
+                throw new CompletionException(throwable);
             }
-        });
+        }, executorService);
+    }
+
+    /**
+     * Shuts down the executor service, attempting a graceful shutdown.
+     * This method should be called to clean up resources when the application is shutting down.
+     */
+    public void shutdownExecutor() {
+        executorService.shutdown();
+
+        try {
+
+            if (!executorService.awaitTermination(60, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+
+        } catch (InterruptedException e) {
+
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+
+        }
     }
 }
