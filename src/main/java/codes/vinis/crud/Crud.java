@@ -1,80 +1,76 @@
 package codes.vinis.crud;
 
 import codes.vinis.authentication.MysqlAuthentication;
+import codes.vinis.crud.util.Column;
+import codes.vinis.crud.util.Table;
+import org.jetbrains.annotations.Blocking;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.Range;
 
 import java.net.InetAddress;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import java.sql.PreparedStatement;
+
 
 public class Crud {
 
-    @NotNull MysqlAuthentication mysqlAuthentication;
+    private final @Nullable MysqlAuthentication mysqlAuthentication;
 
     public Crud(@Nullable String username, @Nullable String password, @NotNull InetAddress hostname, @Range(from = 0, to = 65535) int port) {
-        mysqlAuthentication = new MysqlAuthentication(username, password, hostname, port);
-    }
+        mysqlAuthentication = new MysqlAuthentication( username, password, hostname, port);
+    };
 
     /**
-     * This method is used to asynchronously insert a new record into a specified table in a MySQL database.
+     * Asynchronous method to insert a new record into a specific table.
      *
-     * @param table  The name of the table in the database where the record will be inserted.
-     *               This parameter cannot be null or empty.
-     * @param values A HashMap containing the column names as keys and the corresponding values to be inserted.
-     *               This parameter cannot be null or empty.
+     * @param table  The table in which the new record will be inserted.
+     * @param values A HashMap mapping each column (key) to a corresponding value (value).
+     * The keys are of type Column and the values are of type Object, which can be null (@Nullable).
      *
-     * @return A CompletableFuture that will be completed when the database operation is finished.
-     *         If the operation is successful, the CompletableFuture is completed normally.
-     *         If an exception occurs during the operation, the CompletableFuture is completed exceptionally with the exception.
+     * @throws SQLException If the connection is null or if there is any error during the execution of the SQL statement.
      *
-     * @throws IllegalArgumentException If the table name or values are null or empty.
-     * @throws SQLException If a database access error occurs or the connection object is null.
+     * @Blocking This method is blocking as it waits for the completion of the insert operation.
+     *
+     * @NotNull This method neither accepts nor returns null values, except the values in the HashMap.
      */
-    @NotNull
-    public final CompletableFuture<Void> createRecord(String table, HashMap<String, Object> values) {
+    @Blocking
+    public void create(Table table, HashMap<Column, @Nullable Object> values) throws SQLException {
 
-        if (table == null || table.isEmpty()) {
-            throw new IllegalArgumentException("table name cannot be null or empty");
-        }
-        if (values == null || values.isEmpty()) {
-            throw new IllegalArgumentException("values cannot be null or empty");
-        }
-
-        @NotNull CompletableFuture<Void> future = new CompletableFuture<>();
+        @NotNull CompletableFuture<Connection> future = mysqlAuthentication.connect();
 
         CompletableFuture.runAsync(() -> {
-           try(@NotNull Connection connection = mysqlAuthentication.getConnection()) {
 
-               if (connection == null) {
-                   throw new SQLException("Connection is null");
-               }
+            try (@NotNull Connection connection = future.join()) {
 
-               @NotNull String columns = String.join(", ", values.keySet());
-               @NotNull String placeholders = String.join(", ", Collections.nCopies(values.size(),"?"));
+                if (connection == null) {
+                    throw new SQLException("connection is null");
+                }
 
-               @NotNull String sql = "INSERT INTO " + table + " (" + columns + ") VALUES (" + placeholders + ")";
+                @NotNull String columns = values.keySet().stream().map(Column::toString).collect(Collectors.joining(", "));
+                @NotNull String placeholders = String.join(", ", Collections.nCopies((values.size()), "?"));
 
-               try(PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
+                @NotNull String sql = "INSERT INTO " + "test_foda . " + table.toString() + " (" + columns +") VALUES (" + placeholders + ")";
 
-                   int index = 1;
-                   for (Object value : values.values()) {
-                       preparedStatement.setObject(index++, value);
-                   }
+                try(PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
+                    int index = 1;
+                    for ( @NotNull Object value : values.values()) {
+                        preparedStatement.setObject(index++, value);
+                    }
 
-                   preparedStatement.executeUpdate();
-               }
-           } catch (@NotNull Throwable throwable) {
-               future.completeExceptionally(throwable);
-           }
+                    preparedStatement.executeUpdate();
+                }
+
+            } catch (@NotNull Throwable throwable) {
+                future.completeExceptionally(throwable);
+            }
         });
 
-        return future;
     }
+
 }
