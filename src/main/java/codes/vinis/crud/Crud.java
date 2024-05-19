@@ -44,6 +44,7 @@ public class Crud {
 
         @NotNull CompletableFuture<Connection> future = mysqlAuthentication.connect();
 
+        float number = 12.0F;
         CompletableFuture.runAsync(() -> {
 
             try (@NotNull Connection connection = future.join()) {
@@ -59,7 +60,7 @@ public class Crud {
 
                 try(PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
                     int index = 1;
-                    for ( @NotNull Object value : values.values()) {
+                    for ( Object value : values.values()) {
                         preparedStatement.setObject(index++, value);
                     }
 
