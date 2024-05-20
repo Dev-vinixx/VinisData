@@ -82,23 +82,35 @@ public class MysqlAuthentication {
      */
     public final @NotNull CompletableFuture<Connection> connect() {
         if (isConnected()) {
-            throw new IllegalStateException("This authentication is already connected!");
+            throw new IllegalStateException("this authentication is already connected!");
         }
 
-        return CompletableFuture.supplyAsync(() -> {
+        @NotNull CompletableFuture<Connection> future = new CompletableFuture<>();
+
+         CompletableFuture.runAsync(() -> {
+
             try {
+
                 Class<Driver> ignore = getDriver();
                 this.connection = load().get(10, TimeUnit.SECONDS);
-                return connection;
+                future.complete(connection);
+
             } catch (Throwable throwable) {
                 try {
+
                     if (isConnected()) {
                         disconnect().get(3, TimeUnit.SECONDS);
                     }
-                } catch (Throwable ignore) {}
+
+                } catch(@NotNull Throwable throwable1) {
+                    future.completeExceptionally(throwable1);
+                }
+
                 throw new CompletionException(throwable);
             }
         }, executorService);
+
+         return future;
     }
 
     /**
