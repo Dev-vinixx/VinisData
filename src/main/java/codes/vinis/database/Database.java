@@ -14,12 +14,12 @@ public class Database {
     }
 
     @Override
-    public String toString() {
+    public final String toString() {
         return name;
     }
 
     @Range(from = 0, to = Long.MAX_VALUE)
-    public long getId() {
+    public final long getId() {
         return id;
     }
 }

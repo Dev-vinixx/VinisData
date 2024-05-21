@@ -1,8 +1,7 @@
 package codes.vinis.crud;
 
+
 import codes.vinis.authentication.MysqlAuthentication;
-import codes.vinis.crud.util.Column;
-import codes.vinis.crud.util.Table;
 import codes.vinis.database.Database;
 import org.jetbrains.annotations.*;
 
@@ -13,14 +12,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
-public class Crud {
+public class Table extends Database {
 
     private final @Nullable MysqlAuthentication mysqlAuthentication;
 
-    public Crud(@Nullable String username, @Nullable String password, @NotNull InetAddress hostname, @Range(from = 0, to = 65535) int port) {
+    public Table(@NotNull String name, @Range(from = 0, to = Long.MAX_VALUE) long id, @Nullable String username, @Nullable String password, @NotNull InetAddress hostname, @Range(from = 0, to = 65535) int port) {
+        super(name, id);
         this.mysqlAuthentication = new MysqlAuthentication(username, password, hostname, port);
     }
 
@@ -45,12 +44,16 @@ public class Crud {
                     connection = mysqlAuthentication.getConnection();
                 } else {
                     connection = mysqlAuthentication.connect().join();
+
+                    if (connection == null) {
+                        throw new SQLException("connection is null");
+                    }
                 }
 
                 String columns = values.keySet().stream().map(Column::toString).collect(Collectors.joining(", "));
                 String placeholders = values.keySet().stream().map(k -> "?").collect(Collectors.joining(", "));
 
-                String sql = "INSERT INTO " + database + "." + table + " (" + columns + ") VALUES (" + placeholders + ")";
+                String sql = "INSERT INTO " + database + " . " + table + " (" + columns + ") VALUES (" + placeholders + ")";
 
                 try (@NotNull PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
                     int index = 1;
@@ -86,20 +89,24 @@ public class Crud {
 
         CompletableFuture.runAsync(() -> {
             try {
-                @Nullable Connection connection;
 
-                if (mysqlAuthentication.getConnection() != null) {
-                    connection = mysqlAuthentication.getConnection();
-                } else {
-                    connection = mysqlAuthentication.connect().join();
-                }
 
                 @NotNull String setCause = columns.stream().map(Column::toString).collect(Collectors.joining(", "));
                 @NotNull String setConditions = condition.entrySet().stream()
                         .map(entry -> entry.getKey() + " IN (" + entry.getValue().stream().map(v -> "?").collect(Collectors.joining(", ")) + ")")
                         .collect(Collectors.joining(" AND "));
                 @NotNull String sql = "SELECT " + setCause + " FROM " + database.toString() + "." + table.toString() + " WHERE " + setConditions;
+                @Nullable Connection connection;
 
+                if (mysqlAuthentication.getConnection() != null) {
+                    connection = mysqlAuthentication.getConnection();
+                } else {
+                    connection = mysqlAuthentication.connect().join();
+
+                    if (connection == null) {
+                        throw new SQLException("connection is null");
+                    }
+                }
                 try (@NotNull PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
                     int index = 1;
                     for (List<Object> values : condition.values()) {
@@ -153,17 +160,21 @@ public class Crud {
                     connection = mysqlAuthentication.getConnection();
                 } else {
                     connection = mysqlAuthentication.connect().join();
+
+                    if (connection == null) {
+                        throw new SQLException("connection is null");
+                    }
                 }
 
                 String setClause = values.keySet().stream()
                         .map(column -> column + " = ?")
                         .collect(Collectors.joining(", "));
 
-                String whereClause = condition.keySet().stream()
+                String setConditions = condition.keySet().stream()
                         .map(column -> column + " = ?")
                         .collect(Collectors.joining(" AND "));
 
-                String sql = "UPDATE " + database + "." + table + " SET " + setClause + " WHERE " + whereClause;
+                String sql = "UPDATE " + database + "." + table + " SET " + setClause + " WHERE " + setConditions;
 
                 try (@NotNull PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
                     int index = 1;
@@ -209,13 +220,17 @@ public class Crud {
                     connection = mysqlAuthentication.getConnection();
                 } else {
                     connection = mysqlAuthentication.connect().join();
+
+                    if (connection == null) {
+                        throw new SQLException("connection is null");
+                    }
                 }
 
-                String whereClause = condition.keySet().stream()
+                String setConditions = condition.keySet().stream()
                         .map(column -> column + " = ?")
                         .collect(Collectors.joining(" AND "));
 
-                String sql = "DELETE FROM " + database + "." + table + " WHERE " + whereClause;
+                String sql = "DELETE FROM " + database + "." + table + " WHERE " + setConditions;
 
                 try (@NotNull PreparedStatement preparedStatement = connection.prepareStatement(sql)) {
                     int index = 1;
